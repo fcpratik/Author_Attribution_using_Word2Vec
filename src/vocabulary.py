@@ -1,16 +1,20 @@
 from collections import Counter
 import numpy as np
 
-def build_vocab(token_lists,min_freq=5):
+def build_vocab(token_lists, min_freq=5):
     counter = Counter()
 
     for tokens in token_lists:
         counter.update(tokens)
 
-    vocab = [w for w,c in counter.most_common(min_freq) if c>=min_freq]
+    # 1. Start with words that meet the frequency requirement
+    vocab = [w for w, c in counter.most_common() if c >= min_freq]
 
-    word2idx = {w:i for i,w in enumerate(vocab)}
-    idx2word = {i:w for w,i in word2idx.items()}
+    # 2. CRITICAL FIX: Manually insert "<UNK>" at index 0
+    vocab = ["<UNK>"] + vocab
+
+    word2idx = {w: i for i, w in enumerate(vocab)}
+    idx2word = {i: w for w, i in word2idx.items()}
 
     return word2idx, idx2word
 
