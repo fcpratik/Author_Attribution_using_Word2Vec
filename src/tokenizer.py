@@ -4,7 +4,7 @@ import re
 # 1) words with optional apostrophes: don't, i'm
 # 2) numbers
 # 3) punctuation as separate tokens
-TOKEN_PATTERN = re.compile(
+TOK_PATTERN = re.compile(
     r"[a-z]+(?:'[a-z]+)?|\d+|[.,!?;:()\"-]"
 )
 # The re.compile() method in Python returns a regular expression object,
@@ -12,5 +12,5 @@ TOKEN_PATTERN = re.compile(
 
 def tokenize(text: str):
     text = text.lower()
-    tokens = TOKEN_PATTERN.findall(text)
+    tokens = TOK_PATTERN.findall(text)
     return tokens
