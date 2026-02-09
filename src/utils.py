@@ -14,9 +14,6 @@ def load_vocab(filepath):
 
 
 def get_text_embedding(model, word2idx, text, tokenizer_func):
-    """
-    Computes the average word vector for a given text.
-    """
     tokens = tokenizer_func(text)
     indices = [word2idx.get(t, word2idx.get("<UNK>", 0)) for t in tokens]
 

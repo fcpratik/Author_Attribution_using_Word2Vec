@@ -1,183 +1,169 @@
-"""
-Task 1: Author Verification and Ranking
-Given a query text and candidate texts, rank candidates by similarity to query author's style
-"""
 import sys
 import json
 import torch
 import numpy as np
 from pathlib import Path
+from collections import Counter
 
 from src.tokenizer import tokenize
 from src.vocabulary import tokens_to_indices
-from src.word2vec import SkipGramSampling, get_word_embeddings
+from src.word2vec import SkipGramSampling
 
-import torch.nn.functional as F
 
-def compute_document_embedding(text, word2idx, embeddings):
-    """
-    Convert a text document to a single embedding vector
-    Uses average of word embeddings with TF-IDF-like weighting
-    """
+def compute_document_embedding(text, word2idx, embeddings_np, idf_weights):
+
     tokens = tokenize(text)
+    dim = embeddings_np.shape[1]
     if not tokens:
-        return np.zeros(embeddings.shape[1])
+        return np.zeros(dim)
 
     indices = tokens_to_indices(tokens, word2idx)
+    total = len(indices)
 
-    # Get embeddings for all tokens
-    token_embeddings = []
-    token_counts = {}
+    # Count term frequencies in this document
+    tf_counts = Counter(indices)
 
-    for idx in indices:
-        if idx in token_counts:
-            token_counts[idx] += 1
-        else:
-            token_counts[idx] = 1
+    doc_embedding = np.zeros(dim)
+    total_weight = 0.0
 
-    # Weighted average: give more weight to rare words
-    total_tokens = len(indices)
-    doc_embedding = np.zeros(embeddings.shape[1])
-
-    for idx, count in token_counts.items():
-        # TF weight (normalized frequency)
-        tf = count / total_tokens
-        # Simple IDF approximation: rare words get higher weight
-        idf = 1.0 / (1.0 + np.log(1.0 + count))
+    for idx, count in tf_counts.items():
+        tf = count / total
+        idf = idf_weights.get(idx, 1.0)
         weight = tf * idf
+        doc_embedding += weight * embeddings_np[idx]
+        total_weight += weight
 
-        doc_embedding += weight * embeddings[idx].numpy()
+    if total_weight > 0:
+        doc_embedding /= total_weight
 
-    # Normalize
+    # L2 normalize
     norm = np.linalg.norm(doc_embedding)
     if norm > 0:
-        doc_embedding = doc_embedding / norm
+        doc_embedding /= norm
 
     return doc_embedding
 
 
 def compute_stylometric_features(text):
     """
-    Extract stylometric features that capture author's writing style
-    Returns a feature vector
+    Stylometric features are used to  capture  author's writing fingerprint:
+    punctuation habits, sentence structure, vocabulary richness,...
     """
     tokens = tokenize(text)
     if not tokens:
-        return np.zeros(10)
+        return np.zeros(15)
 
-    # Split into sentences (rough approximation)
-    sentences = text.split('.')
-    sentences = [s.strip() for s in sentences if s.strip()]
+    n_tokens = len(tokens)
+    n_chars = len(text)
+
+    # Sentences (rough split)
+    sentences = [s.strip() for s in text.split('.') if s.strip()]
+    n_sentences = max(len(sentences), 1)
 
     features = []
 
-    # 1. Average sentence length
-    avg_sent_len = len(tokens) / max(len(sentences), 1)
-    features.append(avg_sent_len / 50.0)  # Normalize
+    # Average  length of sentence (in tokens)
+    features.append((n_tokens / n_sentences) / 50.0)
 
-    # 2. Vocabulary richness (type-token ratio)
-    unique_tokens = len(set(tokens))
-    ttr = unique_tokens / len(tokens) if tokens else 0
-    features.append(ttr)
+    # Vocabulary richness (type-token ratio)
+    features.append(len(set(tokens)) / n_tokens)
 
-    # 3. Punctuation frequency
-    punct_count = sum(1 for char in text if char in '.,!?;:')
-    punct_freq = punct_count / len(text) if text else 0
-    features.append(punct_freq * 10)  # Scale up
+    #  Average word length
+    features.append(sum(len(t) for t in tokens) / n_tokens / 10.0)
 
-    # 4. Average word length
-    avg_word_len = sum(len(token) for token in tokens) / len(tokens) if tokens else 0
-    features.append(avg_word_len / 10.0)  # Normalize
+    #  Punctuation frequencies (strong author signal!)
+    for char in [',', ';', ':', '!', '?', '-']:
+        features.append(text.count(char) / n_tokens * 10)
 
-    # 5. Comma frequency
-    comma_freq = text.count(',') / len(tokens) if tokens else 0
-    features.append(comma_freq * 10)
+    #  Parentheses frequency
+    features.append((text.count('(') + text.count(')')) / n_tokens * 20)
 
-    # 6. Question mark frequency
-    question_freq = text.count('?') / len(tokens) if tokens else 0
-    features.append(question_freq * 20)
+    #  Quote frequency
+    features.append((text.count('"') + text.count("'")) / n_tokens * 10)
 
-    # 7. Exclamation frequency
-    exclaim_freq = text.count('!') / len(tokens) if tokens else 0
-    features.append(exclaim_freq * 20)
+    #  All-caps word ratio (emphasis style)
+    all_caps = sum(1 for t in text.split() if t.isupper() and len(t) > 1)
+    features.append(all_caps / n_tokens * 10)
 
-    # 8. Colon/semicolon frequency
-    colon_freq = (text.count(':') + text.count(';')) / len(tokens) if tokens else 0
-    features.append(colon_freq * 20)
+    #  Short word ratio (<=3 chars) — function word density
+    short = sum(1 for t in tokens if len(t) <= 3)
+    features.append(short / n_tokens)
 
-    # 9. Parentheses frequency
-    paren_freq = (text.count('(') + text.count(')')) / len(tokens) if tokens else 0
-    features.append(paren_freq * 20)
+    #  Long word ratio (>=8 chars) — vocabulary sophistication
+    long_ = sum(1 for t in tokens if len(t) >= 8)
+    features.append(long_ / n_tokens)
 
-    # 10. Quote frequency
-    quote_freq = (text.count('"') + text.count("'")) / len(tokens) if tokens else 0
-    features.append(quote_freq * 10)
+    #  Paragraph count (formatting style)
+    paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
+    features.append(len(paragraphs) / max(n_sentences, 1))
 
     return np.array(features)
 
 
-def compute_combined_features(text, word2idx, embeddings):
-    """Combine word embeddings with stylometric features"""
-    # Get word embedding representation
-    doc_emb = compute_document_embedding(text, word2idx, embeddings)
-
-    # Get stylometric features
+def compute_combined_features(text, word2idx, embeddings_np, idf_weights, style_weight=0.5):
+    """Combine TF-IDF embeddings + stylometric features into one single vector."""
+    doc_emb = compute_document_embedding(text, word2idx, embeddings_np, idf_weights)
     style_features = compute_stylometric_features(text)
 
-    # Concatenate (give more weight to embeddings)
-    combined = np.concatenate([doc_emb, style_features * 0.3])
+    combined = np.concatenate([doc_emb, style_features * style_weight])
 
-    # Normalize
     norm = np.linalg.norm(combined)
     if norm > 0:
-        combined = combined / norm
+        combined /= norm
 
     return combined
 
 
+def build_idf_weights(train_dir, word2idx):
+    """
+    Build IDF weights from training corpus.
+    Words appearing in fewer documents get higher weight → better at distinguishing authors.
+    """
+    txt_files = sorted(Path(train_dir).glob("*.txt"))
+    num_docs = len(txt_files)
+
+    doc_freq = Counter()  # How many documents contain each word index
+
+    for filepath in txt_files:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            text = f.read()
+        tokens = tokenize(text)
+        indices = set(tokens_to_indices(tokens, word2idx))
+        doc_freq.update(indices)
+
+    # IDF = log(N / df)
+    idf = {}
+    for idx in range(len(word2idx)):
+        df = doc_freq.get(idx, 0)
+        idf[idx] = np.log(num_docs / (1 + df)) + 1.0  # smoothed IDF
+
+    return idf
+
+
 def cosine_similarity(vec1, vec2):
-    """Compute cosine similarity between two vectors"""
-    dot_product = np.dot(vec1, vec2)
-    norm1 = np.linalg.norm(vec1)
-    norm2 = np.linalg.norm(vec2)
-
-    if norm1 == 0 or norm2 == 0:
+    dot = np.dot(vec1, vec2)
+    n1 = np.linalg.norm(vec1)
+    n2 = np.linalg.norm(vec2)
+    if n1 == 0 or n2 == 0:
         return 0.0
-
-    return dot_product / (norm1 * norm2)
-
-
-def get_text_vector(text, word2idx, embeddings):
-    tokens = tokenize(text)  # Make sure you import tokenize
-    if not tokens:
-        return torch.zeros(embeddings.size(1))
-
-    indices = [word2idx.get(t, 0) for t in tokens]  # 0 is <UNK>
-    indices_tensor = torch.tensor(indices, dtype=torch.long)
-
-    # Select vectors and average them
-    # shape: (num_words, dim)
-    vectors = embeddings[indices_tensor]
-
-    # Average pooling
-    return torch.mean(vectors, dim=0)
+    return dot / (n1 * n2)
 
 
-def rank_candidates(query_text, candidates, word2idx, embeddings):
-    query_vec = get_text_vector(query_text, word2idx, embeddings)
+def rank_candidates(query_text, candidates, word2idx, embeddings_np, idf_weights, style_weight=0.5):
+    """
+    Rank candidates by similarity using combined TF-IDF embeddings + stylometric features.
+    """
+    query_vec = compute_combined_features(query_text, word2idx, embeddings_np, idf_weights, style_weight)
 
     scores = []
     for cand_id, cand_text in candidates.items():
-        cand_vec = get_text_vector(cand_text, word2idx, embeddings)
-
-        # Cosine Similarity
-        # dim=0 because these are 1D vectors
-        score = F.cosine_similarity(query_vec, cand_vec, dim=0).item()
+        cand_vec = compute_combined_features(cand_text, word2idx, embeddings_np, idf_weights, style_weight)
+        score = cosine_similarity(query_vec, cand_vec)
         scores.append((cand_id, score))
 
-    # Sort descending (highest score first)
     scores.sort(key=lambda x: x[1], reverse=True)
     return scores
+
 
 def main():
     if len(sys.argv) < 3:
@@ -187,69 +173,68 @@ def main():
     test_file = sys.argv[1]
     output_dir = sys.argv[2]
 
-    # 1. Load Model & Vocabulary
+    # ---- Load Model & Vocabulary ----
     print("\nLoading model...")
-    checkpoint = torch.load('word2vec_model.pt')  # Ensure filename matches what you saved
-    word2idx = checkpoint['word2idx']  # Ensure these keys match your save dictionary
-    # idx2word = checkpoint['idx2word']    # Not strictly needed for inference
-    embedding_dim = checkpoint['embedding_dim']  # Or load from checkpoint if you saved it
+    checkpoint = torch.load('word2vec_model.pt', map_location='cpu')
+    word2idx = checkpoint['word2idx']
+    embedding_dim = checkpoint['embedding_dim']
     vocab_size = len(word2idx)
 
     model = SkipGramSampling(vocab_size=vocab_size, embedding_dim=embedding_dim)
-    model.load_state_dict(checkpoint['model_state_dict'])  # Adjust key if needed
+    model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()
 
-    # Get embeddings matrix once
-    embeddings = model.in_embed.weight.data
-    print(f"Loaded embeddings: {embeddings.shape}")
+    embeddings_np = model.in_embed.weight.data.numpy()
+    print(f"Loaded embeddings: {embeddings_np.shape}")
 
-    # 2. Load Test Data
+    # ---- Build IDF weights from training data ----
+    train_dir = checkpoint['hyperparameters'].get('train_dir', 'data/train_data')
+
+    train_path = Path(train_dir)
+    if not train_path.exists():
+        train_path = Path('data/train_data')
+
+    if train_path.exists():
+        print(f"Building IDF weights from {train_path}...")
+        idf_weights = build_idf_weights(train_path, word2idx)
+    else:
+        print("Warning: training data not found, using uniform IDF weights")
+        idf_weights = {i: 1.0 for i in range(vocab_size)}
+
+    # ---- Load Test Data ----
     print(f"\nLoading test data from {test_file}...")
     with open(test_file, 'r', encoding='utf-8') as f:
-        test_data = json.load(f)  # This is a LIST of dictionaries
+        test_data = json.load(f)
 
     print(f"Found {len(test_data)} test cases.")
 
-    # 3. Prepare Output File
+    # ---- Process & Write Results ----
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     output_path = Path(output_dir) / "task1_predictions.jsonl"
-
-    # 4. Processing Loop
     print(f"Processing and saving to {output_path}...")
 
     with open(output_path, 'w', encoding='utf-8') as f_out:
-
-        # LOOP through each test case in the list
         for i, case in enumerate(test_data):
-
-            # Extract data for THIS specific case
             query_id = case['query_id']
             query_text = case['query_text']
-            candidates = case['candidates']  # Dictionary of candidates
+            candidates = case['candidates']
 
-            # --- Perform Ranking (Logic you likely have in a helper function) ---
-            # Assuming rank_candidates returns a list like [('cand_1', 0.9), ('cand_2', 0.4)]
-            # You need to implement rank_candidates or put the logic here.
-            ranked = rank_candidates(query_text, candidates, word2idx, embeddings)
-
-            # Extract just the IDs
+            ranked = rank_candidates(query_text, candidates, word2idx, embeddings_np, idf_weights)
             ranked_ids = [cand_id for cand_id, score in ranked]
 
-            # Create result object
             result = {
                 "query_id": query_id,
                 "ranked_candidates": ranked_ids
             }
-
-            # Write to file immediately (JSONL format = one JSON per line)
             f_out.write(json.dumps(result) + '\n')
 
             if (i + 1) % 10 == 0:
-                print(f"Processed {i + 1}/{len(test_data)}...")
+                print(f"  Processed {i + 1}/{len(test_data)}...")
 
     print("=" * 60)
     print("Task 1 complete!")
     print("=" * 60)
+
 
 if __name__ == "__main__":
     main()

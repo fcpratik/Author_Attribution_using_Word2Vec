@@ -9,7 +9,7 @@ from src.vocabulary import sample_negatives_batch
 
 
 class SkipGramDataset(Dataset):
-    """Wrap the pairs array so DataLoader handles shuffling and batching."""
+
     def __init__(self, pairs_array):
         self.centers = torch.from_numpy(pairs_array[:, 0].astype(np.int64))
         self.contexts = torch.from_numpy(pairs_array[:, 1].astype(np.int64))

@@ -1,7 +1,3 @@
-"""
-Task 2: Author Clustering
-Given unlabeled text chunks, group them by author identity using clustering
-"""
 import sys
 import json
 import torch
@@ -89,7 +85,7 @@ def compute_combined_features(text, word2idx, embeddings):
 
 
 class KMeans:
-    """K-Means clustering implementation"""
+    # K-Means clustering implementation
 
     def __init__(self, n_clusters, max_iters=100, n_init=20, random_state=42):
         self.n_clusters = n_clusters
@@ -100,7 +96,7 @@ class KMeans:
         self.labels = None
 
     def fit(self, X):
-        """Fit K-Means to data with multiple random initializations"""
+
         np.random.seed(self.random_state)
 
         best_inertia = float('inf')
@@ -128,10 +124,10 @@ class KMeans:
         return self
 
     def _fit_once(self, X):
-        """Single K-Means run"""
+
         n_samples = X.shape[0]
 
-        # K-Means++ initialization (better than random)
+        # K-Means++ initialization
         indices = np.random.choice(n_samples, self.n_clusters, replace=False)
         centroids = X[indices].copy()
 

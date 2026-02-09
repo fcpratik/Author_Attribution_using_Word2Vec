@@ -1,7 +1,3 @@
-"""
-Training script for Word2Vec model on author data
-Reads all text files from training directory and trains embeddings
-"""
 import sys
 import os
 from pathlib import Path
@@ -9,12 +5,12 @@ from collections import Counter
 import torch
 
 from src.tokenizer import tokenize
-from src.vocabulary import build_vocab, tokens_to_indices, build_negative_sampling_table, generate_skipgram_pairs
+from src.vocabulary import build_vocab, tokens_to_indices, build_negative_sampling_table, generate_skipgram_pairs_array
 from src.word2vec import SkipGramSampling, train_word2vec
 
 
 def load_training_data(train_dir):
-    """Load all text files from training directory"""
+
     print(f"Loading training data from {train_dir}...")
     all_texts = []
     all_tokens_list = []
@@ -82,7 +78,7 @@ def main():
     all_pairs = []
     for tokens in all_tokens_list:
         indices = tokens_to_indices(tokens, word2idx)
-        pairs = generate_skipgram_pairs(indices, window_size=WINDOW_SIZE)
+        pairs = generate_skipgram_pairs_array(indices, window_size=WINDOW_SIZE)
         all_pairs.extend(pairs)
 
     print(f"Generated {len(all_pairs)} training pairs")
@@ -105,8 +101,8 @@ def main():
     print("=" * 60)
     train_word2vec(
         model=model,
-        pairs=all_pairs,
-        neg_sampling_dist=neg_dist,
+        pairs_array=all_pairs,
+        neg_table=neg_dist,
         num_negative=NUM_NEGATIVE,
         epochs=EPOCHS,
         batch_size=BATCH_SIZE,

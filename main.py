@@ -1,6 +1,3 @@
-"""
-Optimized training script — targets ~20 minutes on CPU
-"""
 import sys
 import os
 from pathlib import Path
@@ -10,11 +7,13 @@ import torch
 import time
 
 from src.tokenizer import tokenize
+
 from src.vocabulary import (
     build_vocab, tokens_to_indices,
     build_negative_sampling_table, generate_skipgram_pairs_array,
     subsample_tokens,
 )
+
 from src.word2vec import SkipGramSampling, train_word2vec
 
 
@@ -36,16 +35,14 @@ def load_training_data(train_dir):
 
 def main():
     TRAIN_DIR = sys.argv[1] if len(sys.argv) > 1 else "data/train_data"
-
-    # Hyperparameters — tuned for quality within ~20 min CPU budget
     EMBEDDING_DIM = 150
     WINDOW_SIZE = 5
     MIN_FREQ = 2
     NUM_NEGATIVE = 10
-    EPOCHS = 20
-    BATCH_SIZE = 4096       # large batches = fewer steps = faster on CPU
+    EPOCHS = 15
+    BATCH_SIZE = 4096
     LEARNING_RATE = 0.003
-    SUBSAMPLE_THRESH = 1e-4 # drop frequent words to cut pairs & improve quality
+    SUBSAMPLE_THRESH = 1e-4
 
     print("=" * 60)
     print("OPTIMIZED Word2Vec Training")
@@ -59,7 +56,7 @@ def main():
 
     start_time = time.time()
 
-    # ---- Load data ----
+    # ---- Load the data ----
     all_tokens_list = load_training_data(TRAIN_DIR)
 
     # ---- Build vocabulary on all data ----
@@ -68,27 +65,28 @@ def main():
     for tokens in all_tokens_list:
         counter.update(tokens)
 
-    word2idx, idx2word = build_vocab(all_tokens_list, min_freq=MIN_FREQ)
+    word2idx, idx2word = build_vocab(counter, min_freq=MIN_FREQ)
+
+    # Total length of vocabulary
     vocab_size = len(word2idx)
 
     total_tokens = sum(len(t) for t in all_tokens_list)
     print(f"Total tokens:    {total_tokens:,}")
     print(f"Vocabulary size: {vocab_size:,}")
 
-    # ---- Generate skip-gram pairs (with subsampling) ----
-    print("\nGenerating skip-gram pairs (with subsampling)...")
+    # ---- Generate skip-gram pairs  ----
+    print("\nGenerating skip-gram pairs ...")
     pair_chunks = []
     total_after_subsample = 0
 
     for tokens in all_tokens_list:
         indices = tokens_to_indices(tokens, word2idx)
-        # Subsample frequent words — big speedup + better embeddings
         indices = subsample_tokens(indices, counter, word2idx, threshold=SUBSAMPLE_THRESH)
         total_after_subsample += len(indices)
         pairs = generate_skipgram_pairs_array(indices, window_size=WINDOW_SIZE)
         pair_chunks.append(pairs)
 
-    # Concatenate all numpy arrays into one big array
+
     all_pairs = np.concatenate(pair_chunks, axis=0)
 
     print(f"Tokens after subsampling: {total_after_subsample:,}")
@@ -97,13 +95,13 @@ def main():
     # ---- Negative sampling table ----
     neg_table = build_negative_sampling_table(counter, word2idx)
 
-    # ---- Create model ----
+    # ---- Create a model ----
     print(f"\nCreating model ({vocab_size:,} x {EMBEDDING_DIM})...")
     model = SkipGramSampling(vocab_size=vocab_size, embedding_dim=EMBEDDING_DIM)
     total_params = sum(p.numel() for p in model.parameters())
     print(f"Total parameters: {total_params:,}")
 
-    # ---- Train ----
+    # ---- Training part ----
     print("\n" + "=" * 60)
     print("TRAINING")
     print("=" * 60)
@@ -119,7 +117,7 @@ def main():
         num_workers=0,
     )
 
-    # ---- Save ----
+    # ---- Saving  ----
     print("\nSaving model...")
     torch.save({
         'model_state_dict': model.state_dict(),
