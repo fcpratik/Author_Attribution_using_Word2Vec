@@ -1,5 +1,8 @@
 #!/bin/bash
-# Install required Python packages
-# Students should add any additional packages they need here
 
-pip install torch numpy
+# Install PyTorch (Essential for Word2Vec)
+pip install torch
+
+# Install NumPy (Essential for vector math)
+pip install numpy
+

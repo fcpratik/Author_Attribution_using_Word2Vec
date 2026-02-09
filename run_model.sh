@@ -1,33 +1,31 @@
 #!/bin/bash
 
-# This script is the entry point for your submission.
+# Exit immediately if a command exits with a non-zero status
+set -e
 
-if [ "$1" = "test1" ]; then
-    # Task 1 Inference Mode (Author Verification)
-    TEST_FILE=$2
-    OUTPUT_DIR=$3
-
-    # Ensure output dir exists
-    mkdir -p "$OUTPUT_DIR"
-
+# Logic to handle different execution modes specified in the assignment
+if [ "$1" == "test1" ]; then
+    # ==========================================
+    # Task 1: Author Verification and Ranking
+    # Usage: ./run_model.sh test1 <test_file> <output_dir>
+    # ==========================================
     echo "Running Task 1 Inference..."
-    python3 src/inference_task1.py "$TEST_FILE" "$OUTPUT_DIR"
+    python3 -m src.inference_task1 "$2" "$3"
 
-elif [ "$1" = "test2" ]; then
-    # Task 2 Inference Mode (Author Clustering)
-    TEST_FILE=$2
-    OUTPUT_DIR=$3
-
-    # Ensure output dir exists
-    mkdir -p "$OUTPUT_DIR"
-
+elif [ "$1" == "test2" ]; then
+    # ==========================================
+    # Task 2: Author Clustering
+    # Usage: ./run_model.sh test2 <test_file> <output_dir>
+    # ==========================================
     echo "Running Task 2 Inference..."
-    python3 src/inference_task2.py "$TEST_FILE" "$OUTPUT_DIR"
+    python3 -m src.inference_task2 "$2" "$3"
 
 else
+    # ==========================================
     # Training Mode
-    TRAIN_DIR=$1
-
-    echo "Training model on data in $TRAIN_DIR..."
-    python3 src/train.py "$TRAIN_DIR"
+    # Usage: ./run_model.sh <train_dir>
+    # ==========================================
+    echo "Running Training..."
+    # $1 is the train_dir passed by the TA (e.g., data/train_data/)
+    python3 main.py "$1"
 fi
